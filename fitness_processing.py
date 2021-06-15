@@ -55,6 +55,7 @@ class FitnessProcessor():
         self.xml_file = './apple_health_export/export.xml'
         self.root = ET.parse(self.xml_file).getroot()
         self.is_cached = self.check_cache()
+        self.is_github = False
         if self.is_cached:
             print('Loading cached csvs')
             self.load_csvs()
@@ -210,4 +211,8 @@ class FitnessProcessor():
         )
         if y_data == 'pace':
             fig.update_yaxes(autorange="reversed")
-        fig.show()
+
+        if self.is_github:
+            fig.show('svg')
+        else:
+            fig.show()
