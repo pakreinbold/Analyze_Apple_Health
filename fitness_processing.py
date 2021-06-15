@@ -78,13 +78,12 @@ class FitnessProcessor():
         return is_cached
 
     def load_csvs(self):
-        self.runs = pd.read_csv('./storage/runs.csv', index=False)
-        self.heart_rates = pd.read_csv('./storage/heart_rates.csv',
-                                       index=False)
+        self.runs = pd.read_csv('./storage/runs.csv')
+        self.heart_rates = pd.read_csv('./storage/heart_rates.csv')
 
     def save_csvs(self):
-        self.runs.to_csv('./storage/runs.csv')
-        self.heart_rates.to_csv('./storage/heart_rates.csv')
+        self.runs.to_csv('./storage/runs.csv', index=False)
+        self.heart_rates.to_csv('./storage/heart_rates.csv', index=False)
         today = str(dt.datetime.today().date())
         with open('./storage/as_of.txt', 'w+') as text_file:
             text_file.write(today)
