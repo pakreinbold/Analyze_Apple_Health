@@ -211,7 +211,3 @@ class FitnessProcessor():
         if y_data == 'pace':
             fig.update_yaxes(autorange="reversed")
         fig.show()
-
-
-if __name__ == '__main__':
-    print('yeet')
