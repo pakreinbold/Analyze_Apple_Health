@@ -24,6 +24,7 @@ class FitnessProcessor():
     find_hr(row, mode)
         Returns heart rate aggregate for a row of runs DataFrame
         mode (str): which aggregate to compute
+    enforce_dtypes()
     get_hrs()
         Get heart rate DataFrame from xml file
     get_runs()
@@ -33,6 +34,7 @@ class FitnessProcessor():
         y_data (str): column of `runs` to use for the y-axis
         clr_data (str): column of `runs` to use to color points
         sz_data (str): column of `runs` to use to size points
+    hr_plot(date_str, idx)
 
     Attributes
     ----------
@@ -50,6 +52,7 @@ class FitnessProcessor():
         avg hr [bpm] (float), max hr [bpm] (float), energy [kCal] (float),
         temperature [deg F] (float), humidity [%] (int), indoor (bool),
         start (dt.time), end (dt.time)
+    is_github : bool
     '''
     def __init__(self):
         self.xml_file = './apple_health_export/export.xml'
@@ -59,6 +62,7 @@ class FitnessProcessor():
         if self.is_cached:
             print('Loading cached csvs')
             self.load_csvs()
+            self.enforce_dtypes()
         else:
             print('Processing xml files')
             self.heart_rates = self.get_hrs()
@@ -107,20 +111,33 @@ class FitnessProcessor():
         date = row['date']
 
         # Find the heart rates within that time-frame
-        cond1 = self.heart_rates['date'] == date
-        cond2 = self.heart_rates['time'] < end
-        cond3 = start < self.heart_rates['time']
-        hrs = self.heart_rates[cond1 & cond2 & cond3]['value']
+        cond1 = self.heart_rates['time'].dt.date == date
+        cond2 = self.heart_rates['time'].dt.time < end
+        cond3 = start < self.heart_rates['time'].dt.time
+        hrs = self.heart_rates[cond1 & cond2 & cond3]
 
         # Return the requested aggregate
         if mode == 'max':
-            return hrs.max()
+            return hrs['value'].max()
         elif mode == 'median':
-            return hrs.median()
+            return hrs['value'].median()
         elif mode == 'mean':
-            return hrs.mean()
+            return hrs['value'].mean()
+        elif mode == 'all':
+            return hrs
         else:
             raise Exception('Inappropriate mode specified')
+
+    def enforce_dtypes(self):
+        if type(self.runs['date'][0]) == str:
+            self.runs['date'] = pd.to_datetime(self.runs['date']).dt.date
+        if type(self.runs['start'][0]) == str:
+            self.runs['start'] = pd.to_datetime(self.runs['start']).dt.time
+        if type(self.runs['end'][0]) == str:
+            self.runs['end'] = pd.to_datetime(self.runs['end']).dt.time
+        if type(self.heart_rates['time'][0]) == str:
+            self.heart_rates['time'] = pd.to_datetime(
+                self.heart_rates['time'])
 
     def get_hrs(self):
         # Find heart rate records
@@ -134,10 +151,9 @@ class FitnessProcessor():
         heart_rates = pd.DataFrame(heart_rates)
 
         # Make some convenience columns
-        heart_rates['date'] = pd.to_datetime(heart_rates['endDate']).dt.date
-        heart_rates['time'] = pd.to_datetime(heart_rates['endDate']).dt.time
+        heart_rates['time'] = pd.to_datetime(heart_rates['endDate'])
         heart_rates['value'] = heart_rates['value'].astype(float)
-        heart_rates = heart_rates[['date', 'time', 'value', 'unit']]
+        heart_rates = heart_rates[['time', 'value', 'unit']]
 
         return heart_rates
 
@@ -204,11 +220,11 @@ class FitnessProcessor():
             hover_data={'date': True, 'pace': ':.2f', 'speed': ':.2f',
                         'distance': ':.2f', 'avg hr': ':.1f', 'max hr': ':.1f',
                         'temperature': ':.1f', 'humidity': True,
-                        'energy': ':.0f', 'start': True}
+                        'energy': ':.0f', 'start': True},
+            labels={col: col.capitalize() for col in self.runs.columns}
         )
-        fig.update_layout(
-            width=1500, height=600
-        )
+        fig.update_layout(width=1500, height=600)
+
         if y_data == 'pace':
             fig.update_yaxes(autorange="reversed")
 
@@ -216,3 +232,42 @@ class FitnessProcessor():
             fig.show('svg')
         else:
             fig.show()
+
+    def hr_plot(self, date_str, idx=0):
+        '''
+        Currently only works for data < a y/o.
+        Older data stored in export_cda.xml...?
+        '''
+        try:
+            parts = [int(s) for s in date_str.split('-')]
+            date = dt.date(parts[0], parts[1], parts[2])
+        except Exception as e:
+            print(f'Problem interpreting {date_str}. \
+                    Make sure in %Y-%m-%d format')
+            raise e
+        run = self.runs[self.runs['date'] == date]
+        if run.shape[0] > 1:
+            print(f'Multiple workouts match this {date_str}. Defaulting to the \
+                    earliest. Change the idx parameter to select a different \
+                    one.')
+        elif run.shape[0] == 0:
+            print(f'No workouts on {date_str}. Cannot plot.')
+            return
+        run = run.iloc[idx, :]
+        hrs = self.find_hr(run, mode='all')
+
+        fig = px.scatter(hrs, x='time', y='value',
+                         color_discrete_sequence=['red'])
+        fig.update_layout(
+            width=1500, height=600, title=f'Run on {date_str}',
+            xaxis_title="Time",
+            yaxis_title="Heart Rate (bpm)",
+            xaxis={'tickformat': '%I:%M', 'dtick': 60000.0}
+        )
+        fig.update_xaxes(tickformat='%I:%M')
+
+        if self.is_github:
+            fig.show('svg')
+        else:
+            fig.show()
+        return fig
