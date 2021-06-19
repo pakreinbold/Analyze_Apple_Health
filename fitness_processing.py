@@ -45,7 +45,7 @@ class FitnessProcessor():
     is_cached : bool
         Whether or not the cache exists & is up-to-date
     heart_rates : pd.DataFrame
-        Entries for date (dt.date), time (dt.time), value (float), unit (str)
+        Entries for date (dt.date), time (dt.time), Value (float), unit (str)
     runs : pd.DataFrame
         Entries for date (dt.date), distance [mi] (float),
         duration [min] (float), pace [min/mi] (float), speed [mph] (float),
@@ -61,13 +61,18 @@ class FitnessProcessor():
         self.is_github = False
         if self.is_cached:
             print('Loading cached csvs')
-            self.load_csvs()
-            self.enforce_dtypes()
+            self.heart_rates = self.load_csv('heart_rates')
+            self.runs = self.load_csv('runs')
         else:
-            print('Processing xml files')
-            self.heart_rates = self.get_hrs()
-            self.runs = self.get_runs()
-            self.save_csvs()
+            self.update_cache()
+        return
+
+    def update_cache(self):
+        print('Processing xml files')
+        self.heart_rates = self.get_hrs()
+        self.runs = self.get_runs()
+        self.save_csvs()
+        return
 
     def check_cache(self):
         today = dt.datetime.today().date()
@@ -81,9 +86,20 @@ class FitnessProcessor():
             is_cached = False
         return is_cached
 
-    def load_csvs(self):
-        self.runs = pd.read_csv('./storage/runs.csv')
-        self.heart_rates = pd.read_csv('./storage/heart_rates.csv')
+    def load_csv(self, mode):
+        if mode == 'runs':
+            runs = self.enforce_dtypes(
+                pd.read_csv('./storage/runs.csv'), mode='runs'
+            )
+            return runs
+        elif mode == 'heart_rates':
+            heart_rates = self.enforce_dtypes(
+                pd.read_csv('./storage/heart_rates.csv'), mode='heart_rates'
+            )
+            return heart_rates
+        else:
+            print('Mode must be "runs" or heart_rates".')
+            return
 
     def save_csvs(self):
         self.runs.to_csv('./storage/runs.csv', index=False)
@@ -106,38 +122,43 @@ class FitnessProcessor():
 
     def find_hr(self, row, mode='mean'):
         # Load the times of the workout
-        start = row['start']
-        end = row['end']
-        date = row['date']
+        start = row['Start']
+        end = row['End']
+        date = row['Date']
 
         # Find the heart rates within that time-frame
-        cond1 = self.heart_rates['time'].dt.date == date
-        cond2 = self.heart_rates['time'].dt.time < end
-        cond3 = start < self.heart_rates['time'].dt.time
+        cond1 = self.heart_rates['Time'].dt.date == date
+        cond2 = self.heart_rates['Time'].dt.time < end
+        cond3 = start < self.heart_rates['Time'].dt.time
         hrs = self.heart_rates[cond1 & cond2 & cond3]
 
         # Return the requested aggregate
         if mode == 'max':
-            return hrs['value'].max()
+            return hrs['Value'].max()
         elif mode == 'median':
-            return hrs['value'].median()
+            return hrs['Value'].median()
         elif mode == 'mean':
-            return hrs['value'].mean()
+            return hrs['Value'].mean()
         elif mode == 'all':
             return hrs
         else:
             raise Exception('Inappropriate mode specified')
 
-    def enforce_dtypes(self):
-        if type(self.runs['date'][0]) == str:
-            self.runs['date'] = pd.to_datetime(self.runs['date']).dt.date
-        if type(self.runs['start'][0]) == str:
-            self.runs['start'] = pd.to_datetime(self.runs['start']).dt.time
-        if type(self.runs['end'][0]) == str:
-            self.runs['end'] = pd.to_datetime(self.runs['end']).dt.time
-        if type(self.heart_rates['time'][0]) == str:
-            self.heart_rates['time'] = pd.to_datetime(
-                self.heart_rates['time'])
+    def enforce_dtypes(self, df, mode):
+        if mode == 'runs':
+            if type(df['Date'][0]) == str:
+                df['Date'] = pd.to_datetime(df['Date']).dt.date
+            if type(df['Start'][0]) == str:
+                df['Start'] = pd.to_datetime(df['Start']).dt.time
+            if type(df['End'][0]) == str:
+                df['End'] = pd.to_datetime(df['End']).dt.time
+            return df
+        elif mode == 'heart_rates':
+            if type(df['Time'][0]) == str:
+                df['Time'] = pd.to_datetime(df['Time'])
+            return df
+        else:
+            print('Mode must be "runs" or "heart_rates".')
 
     def get_hrs(self):
         # Find heart rate records
@@ -148,12 +169,18 @@ class FitnessProcessor():
         heart_rates = [hr.attrib for hr in heart_rates]
 
         # Put into DataFrame
-        heart_rates = pd.DataFrame(heart_rates)
+        heart_rates = pd.DataFrame(heart_rates).sort_values('endDate')
 
         # Make some convenience columns
-        heart_rates['time'] = pd.to_datetime(heart_rates['endDate'])
-        heart_rates['value'] = heart_rates['value'].astype(float)
-        heart_rates = heart_rates[['time', 'value', 'unit']]
+        heart_rates['Time'] = pd.to_datetime(heart_rates['endDate'])
+        heart_rates['Value'] = heart_rates['value'].astype(float)
+        heart_rates.rename(columns={'unit': 'Unit'}, inplace=True)
+        heart_rates = heart_rates[['Time', 'Value', 'Unit']].sort_values('Time')
+
+        # Merge with old heart rates
+        if self.is_cached:
+            old_heart_rates = self.load_csv('heart_rates')
+            heart_rates.merge(old_heart_rates, how='outer', on='Time')
 
         return heart_rates
 
@@ -173,59 +200,64 @@ class FitnessProcessor():
 
         # Create shorter columns names
         col_maps = {
-            'startDate': 'date', 'endDate': 'end',
-            'totalDistance': 'distance',            # mi
-            'duration': 'duration',                 # min
-            'totalEnergyBurned': 'energy',          # kCal
-            'HKWeatherTemperature': 'temperature',  # deg F
-            'HKWeatherHumidity': 'humidity',        # %
-            'HKIndoorWorkout': 'indoor',
+            'startDate': 'Date', 'endDate': 'End',
+            'totalDistance': 'Distance',            # mi
+            'duration': 'Duration',                 # min
+            'totalEnergyBurned': 'Energy',          # kCal
+            'HKWeatherTemperature': 'Temperature',  # deg F
+            'HKWeatherHumidity': 'Humidity',        # %
+            'HKIndoorWorkout': 'Indoor',
         }
         runs = runs[col_maps.keys()].rename(columns=col_maps)
 
         # Handle columns with units in their name
-        runs['temperature'] = runs['temperature'].apply(self.convert_temp)
-        runs['humidity'] = runs['humidity'].apply(self.convert_hum)
+        runs['Temperature'] = runs['Temperature'].apply(self.convert_temp)
+        runs['Humidity'] = runs['Humidity'].apply(self.convert_hum)
 
         # Convert to floats from strings
-        float_cols = ['distance', 'duration', 'energy']
+        float_cols = ['Distance', 'Duration', 'Energy']
         runs[float_cols] = runs[float_cols].astype(float)
 
         # Split date & time
-        runs['start'] = pd.to_datetime(runs['date']).dt.time    # hour:min:sec
-        runs['end'] = pd.to_datetime(runs['end']).dt.time       # hour:min:sec
-        runs['date'] = pd.to_datetime(runs['date']).dt.date     # yyyy-mm-dd
-        runs.sort_values('date', inplace=True)
+        runs['Start'] = pd.to_datetime(runs['Date']).dt.time    # hour:min:sec
+        runs['End'] = pd.to_datetime(runs['End']).dt.time       # hour:min:sec
+        runs['Date'] = pd.to_datetime(runs['Date']).dt.date     # yyyy-mm-dd
+        runs.sort_values('Date', inplace=True)
 
         # Get the pace & speed
-        runs['speed'] = 60 * runs['distance'] / runs['duration']    # mph
-        runs['pace'] = runs['duration'] / runs['distance']          # min/mi
+        runs['Speed'] = 60 * runs['Distance'] / runs['Duration']    # mph
+        runs['Pace'] = runs['Duration'] / runs['Distance']          # min/mi
 
         # Find max & avg heart rates for each workout
-        runs['max hr'] = runs.apply(lambda x: self.find_hr(x, mode='max'),
+        runs['Max HR'] = runs.apply(lambda x: self.find_hr(x, mode='max'),
                                     axis=1)
-        runs['avg hr'] = runs.apply(lambda x: self.find_hr(x, mode='mean'),
+        runs['Avg HR'] = runs.apply(lambda x: self.find_hr(x, mode='mean'),
                                     axis=1)
 
         # Rearrange columns
-        runs = runs[['date', 'distance', 'duration', 'pace', 'speed', 'avg hr',
-                     'max hr', 'energy', 'temperature', 'humidity', 'indoor',
-                     'start', 'end']]
+        runs = runs[['Date', 'Distance', 'Duration', 'Pace', 'Speed', 'Avg HR',
+                     'Max HR', 'Energy', 'Temperature', 'Humidity', 'Indoor',
+                     'Start', 'End']]
+
+        # Merge with old runs
+        if self.is_cached:
+            old_runs = self.load_csv('runs')
+            runs.merge(old_runs, how='outer', on=['Date', 'Start'])
 
         return runs
 
-    def run_plot(self, y_data='pace', clr_data='avg hr', sz_data='distance'):
+    def run_plot(self, y_data='Pace', clr_data='Avg HR', sz_data='Distance'):
         fig = px.scatter(
-            self.runs, x='date', y=y_data, color=clr_data, size=sz_data,
-            hover_data={'date': True, 'pace': ':.2f', 'speed': ':.2f',
-                        'distance': ':.2f', 'avg hr': ':.1f', 'max hr': ':.1f',
-                        'temperature': ':.1f', 'humidity': True,
-                        'energy': ':.0f', 'start': True},
+            self.runs, x='Date', y=y_data, color=clr_data, size=sz_data,
+            hover_data={'Date': True, 'Pace': ':.2f', 'Speed': ':.2f',
+                        'Distance': ':.2f', 'Avg HR': ':.1f', 'Max HR': ':.1f',
+                        'Temperature': ':.1f', 'Humidity': True,
+                        'Energy': ':.0f', 'Start': True, 'Duration': ':.2f'},
             labels={col: col.capitalize() for col in self.runs.columns}
         )
         fig.update_layout(width=1500, height=600)
 
-        if y_data == 'pace':
+        if y_data == 'Pace':
             fig.update_yaxes(autorange="reversed")
 
         if self.is_github:
@@ -245,7 +277,7 @@ class FitnessProcessor():
             print(f'Problem interpreting {date_str}. \
                     Make sure in %Y-%m-%d format')
             raise e
-        run = self.runs[self.runs['date'] == date]
+        run = self.runs[self.runs['Date'] == date]
         if run.shape[0] > 1:
             print(f'Multiple workouts match this {date_str}. Defaulting to the \
                     earliest. Change the idx parameter to select a different \
@@ -256,7 +288,7 @@ class FitnessProcessor():
         run = run.iloc[idx, :]
         hrs = self.find_hr(run, mode='all')
 
-        fig = px.scatter(hrs, x='time', y='value',
+        fig = px.scatter(hrs, x='Time', y='Value',
                          color_discrete_sequence=['red'])
         fig.update_layout(
             width=1500, height=600, title=f'Run on {date_str}',
