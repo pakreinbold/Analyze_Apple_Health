@@ -5,76 +5,130 @@ import plotly.express as px
 from os import path
 
 
+def convert_elevation(s):
+    '''
+    Convert the elevation change string, which comes in form "xxx cm"
+
+    Args:
+        s (str): Contains elevation change information
+
+    Returns:
+        (float): The elevation change in feet
+    '''
+    if type(s) == str:
+        return float(s.split()[0]) * 2.54 / 12
+    else:
+        return s
+
+
+def convert_temp(s):
+    '''
+    Convert the temperature into a float
+
+    Args:
+        s (str): Contains the temperature, in the form "__ degF"
+
+    Returns:
+        (float): Temperature with units degrees Fahrenheit
+    '''
+    if type(s) == str:
+        return float(s.split()[0])
+    else:
+        return s
+
+
+def convert_hum(s):
+    '''
+    Convert the humidity string into a float
+
+    Args:
+        s (str): Contains the humidity in the form "XX00 %"
+
+    Returns:
+        (float): Humidity with units % (i.e., 0-100)
+    '''
+    if type(s) == str:
+        return float(s.split()[0]) / 100
+    else:
+        return s
+
+
+def enforce_dtypes(df, mode):
+    '''
+    Make sure that the dtypes in the loaded DataFrames are correct
+
+    Args:
+        df (pd.DataFrame): Could be `heart_rates` or `runs`
+            keys: "Date", "Start", "End" *or* "Time"
+        mode (str): Which DataFrame to work enforce; options: "runs" or "heart_rates"
+
+    Returns:
+        (pd.DataFrame): `df`, but with properly formatted column dtypes
+    '''
+    if mode == 'runs':
+        if type(df['Date'][0]) == str:
+            df['Date'] = pd.to_datetime(df['Date']).dt.date
+        if type(df['Start'][0]) == str:
+            df['Start'] = pd.to_datetime(df['Start']).dt.time
+        if type(df['End'][0]) == str:
+            df['End'] = pd.to_datetime(df['End']).dt.time
+        return df
+    elif mode == 'heart_rates':
+        if type(df['Time'][0]) == str:
+            df['Time'] = pd.to_datetime(df['Time'])
+        return df
+    else:
+        print('Mode must be "runs" or "heart_rates".')
+
+
 class FitnessProcessor():
     '''
-    Methods
-    -------
-    __init__()
-        Instantiate DataFrames
-    check_cache()
-        Check if data is in csv & up-to-date
-    load_csvs()
-        Load DataFrames from csvs
-    save_csvs()
-        Save DataFrames to csvs
-    convert_temp(s)
-        Convert temperature strings into floats
-    convert_hum(s)
-        Convert humidity strings into ints
-    find_hr(row, mode)
-        Returns heart rate aggregate for a row of runs DataFrame
-        mode (str): which aggregate to compute
-    enforce_dtypes()
-    get_hrs()
-        Get heart rate DataFrame from xml file
-    get_runs()
-        Construct run DataFrame from xml file & heart rates DataFrame
-    run_plot(y_data, clr_data, sz_data)
-        Customizable plot of runs DataFrame. X-axis is always date.
-        y_data (str): column of `runs` to use for the y-axis
-        clr_data (str): column of `runs` to use to color points
-        sz_data (str): column of `runs` to use to size points
-    hr_plot(date_str, idx)
-
-    Attributes
-    ----------
-    xml_file : str
-        Path to the xml file
-    root : xml.ElementTree.root
-        Root of xml tree
-    is_cached : bool
-        Whether or not the cache exists & is up-to-date
-    heart_rates : pd.DataFrame
-        Entries for date (dt.date), time (dt.time), Value (float), unit (str)
-    runs : pd.DataFrame
-        Entries for date (dt.date), distance [mi] (float),
-        duration [min] (float), pace [min/mi] (float), speed [mph] (float),
-        avg hr [bpm] (float), max hr [bpm] (float), energy [kCal] (float),
-        temperature [deg F] (float), humidity [%] (int), indoor (bool),
-        start (dt.time), end (dt.time)
-    is_github : bool
+    Attributes:
+        heart_rates (pd.DataFrame):
+            date (dt.date)
+            time (dt.time)
+            Value (float)
+            unit (str)
+        runs (pd.DataFrame):
+            date (dt.date)
+            distance [mi] (float)
+            duration [min] (float)
+            pace [min/mi] (float)
+            speed [mph] (float)
+            avg hr [bpm] (float)
+            max hr [bpm] (float)
+            energy [kCal] (float)
+            temperature [deg F] (float)
+            humidity [%] (int)
+            indoor (bool)
+            start (dt.time)
+            end (dt.time)
     '''
+
     def __init__(self):
+        ''' Make sure heart_rates & runs are up-to-date and load them '''
         self.xml_file = './apple_health_export/export.xml'
         self.root = ET.parse(self.xml_file).getroot()
         self.is_cached = self.check_cache()
         self.is_github = False
         if self.is_cached:
             print('Loading cached csvs')
-            self.heart_rates = self.load_csv('heart_rates')
-            self.runs = self.load_csv('runs')
+            self.load_csv('heart_rates')
+            self.load_csv('runs')
         else:
             self.update_cache()
-        return
 
     def update_cache(self):
+        ''' Call the data processing scripts & cache the csvs '''
         print('Processing xml files')
         self.heart_rates = self.get_hrs()
         self.runs = self.get_runs()
         self.save_csvs()
-        return
 
     def check_cache(self):
+        '''
+        See if the date in `as_of.txt` matches today. If not, set the `is_cached` variable to False
+        '''
         today = dt.datetime.today().date()
         as_of_path = './storage/as_of.txt'
         if path.exists(as_of_path):
@@ -87,49 +141,40 @@ class FitnessProcessor():
         return is_cached
 
     def load_csv(self, mode):
+        ''' Load the stored data into memory & make sure the data types are correct '''
         if mode == 'runs':
-            runs = self.enforce_dtypes(
+            self.runs = enforce_dtypes(
                 pd.read_csv('./storage/runs.csv'), mode='runs'
             )
-            return runs
         elif mode == 'heart_rates':
-            heart_rates = self.enforce_dtypes(
+            self.heart_rates = enforce_dtypes(
                 pd.read_csv('./storage/heart_rates.csv'), mode='heart_rates'
             )
-            return heart_rates
         else:
             print('Mode must be "runs" or heart_rates".')
-            return
 
     def save_csvs(self):
+        ''' Store the DataFrames as csvs, and today's date in a .txt file '''
         self.runs.to_csv('./storage/runs.csv', index=False)
         self.heart_rates.to_csv('./storage/heart_rates.csv', index=False)
         today = str(dt.datetime.today().date())
         with open('./storage/as_of.txt', 'w+') as text_file:
             text_file.write(today)
 
-    def convert_temp(self, s):
-        if type(s) == str:
-            return float(s.split()[0])
-        else:
-            return s
-
-    def convert_hum(self, s):
-        if type(s) == str:
-            return float(s.split()[0]) / 100
-        else:
-            return s
-
-    def convert_elevation(self, s):
-        '''
-        Convert the elevation change string, which comes in form "xxx cm"
-        '''
-        if type(s) == str:
-            return float(s.split()[0]) * 2.54 / 12
-        else:
-            return s
-
     def find_hr(self, row, mode='mean'):
+        '''
+        Search the heart rate data for a given time-window that corresponds to a workout, and
+        compute a statistic of the heart rates from within that window. Mostly used within an
+        .apply() to add a heart rate column to `runs`.
+
+        Args:
+            row (pd.Series): A row of the `runs` DataFrame that corresponds to a single workout
+            mode (str): The statistic to compute; options: "max", "median", "mean", "all"
+
+        Returns:
+            (float): If `mode` != "all", the computed statistic
+            (pd.DataFrame): If `mode` == "all", a subset of `heart_rates`
+        '''
         # Load the times of the workout
         start = row['Start']
         end = row['End']
@@ -151,25 +196,18 @@ class FitnessProcessor():
         elif mode == 'all':
             return hrs
         else:
-            raise Exception('Inappropriate mode specified')
-
-    def enforce_dtypes(self, df, mode):
-        if mode == 'runs':
-            if type(df['Date'][0]) == str:
-                df['Date'] = pd.to_datetime(df['Date']).dt.date
-            if type(df['Start'][0]) == str:
-                df['Start'] = pd.to_datetime(df['Start']).dt.time
-            if type(df['End'][0]) == str:
-                df['End'] = pd.to_datetime(df['End']).dt.time
-            return df
-        elif mode == 'heart_rates':
-            if type(df['Time'][0]) == str:
-                df['Time'] = pd.to_datetime(df['Time'])
-            return df
-        else:
-            print('Mode must be "runs" or "heart_rates".')
+            raise ValueError('Inappropriate mode specified')
 
     def get_hrs(self):
+        '''
+        Process `/apple_health_export/export.xml` to get all recorded heart rates & their times
+
+        Returns:
+            (pd.DataFrame):
+                Time (datetime.datetime)
+                Value (float)
+                Unit (str)
+        '''
         # Find heart rate records
         heart_rates = self.root\
             .findall('./Record[@type="HKQuantityTypeIdentifierHeartRate"]')
@@ -195,7 +233,8 @@ class FitnessProcessor():
         return heart_rates
 
     def get_bw(self):
-        bodyweight = self.root.findall(
+        ''' Instantiate the `bodyweight` DataFrame '''
+        self.bodyweight = self.root.findall(
             './Workout[@workoutActivityType="HKQuantityTypeIdentifierBodyMass"]'
         )
 
@@ -227,9 +266,9 @@ class FitnessProcessor():
         runs = runs[col_maps.keys()].rename(columns=col_maps)
 
         # Handle columns with units in their name
-        runs['Temperature'] = runs['Temperature'].apply(self.convert_temp)
-        runs['Humidity'] = runs['Humidity'].apply(self.convert_hum)
-        runs['Elevation'] = runs['Elevation'].apply(self.convert_elevation)
+        runs['Temperature'] = runs['Temperature'].apply(convert_temp)
+        runs['Humidity'] = runs['Humidity'].apply(convert_hum)
+        runs['Elevation'] = runs['Elevation'].apply(convert_elevation)
 
         # Convert to floats from strings
         float_cols = ['Distance', 'Duration', 'Energy']
