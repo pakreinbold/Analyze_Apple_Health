@@ -120,6 +120,15 @@ class FitnessProcessor():
         else:
             return s
 
+    def convert_elevation(self, s):
+        '''
+        Convert the elevation change string, which comes in form "xxx cm"
+        '''
+        if type(s) == str:
+            return float(s.split()[0]) * 2.54 / 12
+        else:
+            return s
+
     def find_hr(self, row, mode='mean'):
         # Load the times of the workout
         start = row['Start']
@@ -175,7 +184,8 @@ class FitnessProcessor():
         heart_rates['Time'] = pd.to_datetime(heart_rates['endDate'])
         heart_rates['Value'] = heart_rates['value'].astype(float)
         heart_rates.rename(columns={'unit': 'Unit'}, inplace=True)
-        heart_rates = heart_rates[['Time', 'Value', 'Unit']].sort_values('Time')
+        heart_rates = heart_rates[['Time', 'Value', 'Unit']]\
+            .sort_values('Time')
 
         # Merge with old heart rates
         if self.is_cached:
@@ -183,6 +193,11 @@ class FitnessProcessor():
             heart_rates.merge(old_heart_rates, how='outer', on='Time')
 
         return heart_rates
+
+    def get_bw(self):
+        bodyweight = self.root.findall(
+            './Workout[@workoutActivityType="HKQuantityTypeIdentifierBodyMass"]'
+        )
 
     def get_runs(self):
         # Get the records
@@ -207,12 +222,14 @@ class FitnessProcessor():
             'HKWeatherTemperature': 'Temperature',  # deg F
             'HKWeatherHumidity': 'Humidity',        # %
             'HKIndoorWorkout': 'Indoor',
+            'HKElevationAscended': 'Elevation',     # cm
         }
         runs = runs[col_maps.keys()].rename(columns=col_maps)
 
         # Handle columns with units in their name
         runs['Temperature'] = runs['Temperature'].apply(self.convert_temp)
         runs['Humidity'] = runs['Humidity'].apply(self.convert_hum)
+        runs['Elevation'] = runs['Elevation'].apply(self.convert_elevation)
 
         # Convert to floats from strings
         float_cols = ['Distance', 'Duration', 'Energy']
@@ -237,7 +254,7 @@ class FitnessProcessor():
         # Rearrange columns
         runs = runs[['Date', 'Distance', 'Duration', 'Pace', 'Speed', 'Avg HR',
                      'Max HR', 'Energy', 'Temperature', 'Humidity', 'Indoor',
-                     'Start', 'End']]
+                     'Elevation', 'Start', 'End']]
 
         # Merge with old runs
         if self.is_cached:
@@ -248,7 +265,8 @@ class FitnessProcessor():
 
     def run_plot(self, y_data='Pace', clr_data='Avg HR', sz_data='Distance'):
         fig = px.scatter(
-            self.runs, x='Date', y=y_data, color=clr_data, size=sz_data,
+            self.runs, x='Date', y=y_data,
+            color=clr_data, size=self.runs[sz_data]**1.5,
             hover_data={'Date': True, 'Pace': ':.2f', 'Speed': ':.2f',
                         'Distance': ':.2f', 'Avg HR': ':.1f', 'Max HR': ':.1f',
                         'Temperature': ':.1f', 'Humidity': True,
