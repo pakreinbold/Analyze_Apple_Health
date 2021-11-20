@@ -105,6 +105,7 @@ class FitnessProcessor():
             end (dt.time)
     '''
 
+    # Data Loading/Saving/Cacheing
     def __init__(self):
         ''' Make sure heart_rates & runs are up-to-date and load them '''
         self.xml_file = './apple_health_export/export.xml'
@@ -173,6 +174,7 @@ class FitnessProcessor():
         with open('./storage/as_of.txt', 'w+') as text_file:
             text_file.write(today)
 
+    # XML Processing
     def find_hr(self, row, mode='mean'):
         '''
         Search the heart rate data for a given time-window that corresponds to a workout, and
@@ -318,7 +320,8 @@ class FitnessProcessor():
 
         return runs
 
-    def run_plot(self, y_data='Pace', clr_data='Avg HR', sz_data='Distance'):
+    # Plotting
+    def plot_run(self, y_data='Pace', clr_data='Avg HR', sz_data='Distance'):
         fig = px.scatter(
             self.runs, x='Date', y=y_data,
             color=clr_data, size=self.runs[sz_data]**1.5,
@@ -338,11 +341,18 @@ class FitnessProcessor():
         else:
             fig.show()
 
-    def hr_plot(self, date_str, idx=0):
+    def plot_run_hr(self, date_str, idx=0):
         '''
-        Currently only works for data < a y/o.
-        Older data stored in export_cda.xml...?
+        Plot the heart rates for a single workout on a given day.
+
+        Args:
+            date_str (str): Date of the format %Y-%m-%d
+            idx (int): Denotes which workout of the day to plot, if there are multiple
+
+        Returns:
+            (plotly.Figure): The scatter plot
         '''
+        # Make the input date into a datetime.date object
         try:
             parts = [int(s) for s in date_str.split('-')]
             date = dt.date(parts[0], parts[1], parts[2])
@@ -350,17 +360,21 @@ class FitnessProcessor():
             print(f'Problem interpreting {date_str}. \
                     Make sure in %Y-%m-%d format')
             raise e
+
+        # Check how many runs occurred on this date & select one
         run = self.runs[self.runs['Date'] == date]
         if run.shape[0] > 1:
-            print(f'Multiple workouts match this {date_str}. Defaulting to the \
-                    earliest. Change the idx parameter to select a different \
-                    one.')
+            print(f'Multiple workouts match this {date_str}. Defaulting to number {idx+1}. Change \
+                    the `idx` parameter to select a different one.')
+            run = run.iloc[idx, :]
+        elif run.shape[0] == 1:
+            run = run.iloc[0, :]
         elif run.shape[0] == 0:
             print(f'No workouts on {date_str}. Cannot plot.')
             return
-        run = run.iloc[idx, :]
         hrs = self.find_hr(run, mode='all')
 
+        # Plot the selected run as a plotly scatter
         fig = px.scatter(hrs, x='Time', y='Value',
                          color_discrete_sequence=['red'])
         fig.update_layout(
@@ -371,8 +385,46 @@ class FitnessProcessor():
         )
         fig.update_xaxes(tickformat='%I:%M')
 
+        # Make non-interactive for github
         if self.is_github:
             fig.show('svg')
         else:
             fig.show()
+        return fig
+
+    def plot_daily_hr(self, date_str):
+        '''
+        Plot all heart rates on a given day
+
+        Args:
+            date_str (str): Date in the format %Y-%m-%d
+
+        Returns:
+            (plotly.Figure): Scatter plot containing heart rates
+        '''
+        # Make the input date into a datetime.date object
+        try:
+            parts = [int(s) for s in date_str.split('-')]
+            date = dt.date(parts[0], parts[1], parts[2])
+        except Exception as e:
+            print(f'Problem interpreting {date_str}. \
+                    Make sure in %Y-%m-%d format')
+            raise e
+
+        # Sub-set all heart rate data by the input date
+        cond1 = self.heart_rates['Time'].dt.date == date
+        hrs = self.heart_rates[cond1]
+
+        # Plot the selected run as a plotly scatter
+        fig = px.scatter(hrs, x='Time', y='Value',
+                         color_discrete_sequence=['red'])
+        fig.update_layout(
+            width=1000, height=600, title=f'Run on {date_str}',
+            xaxis_title="Time",
+            yaxis_title="Heart Rate (bpm)",
+            # xaxis={'tickformat': '%I:%M', 'dtick': 60000.0}
+        )
+        fig.update_xaxes(tickformat='%I:%M')
+        fig.show()
+
         return fig
