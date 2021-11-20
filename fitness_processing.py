@@ -112,15 +112,14 @@ class FitnessProcessor():
         self.is_cached = self.check_cache()
         self.is_github = False
         if self.is_cached:
-            print('Loading cached csvs')
-            self.load_csv('heart_rates')
-            self.load_csv('runs')
+            self.heart_rates = self.load_csv('heart_rates')
+            self.runs = self.load_csv('runs')
         else:
             self.update_cache()
 
     def update_cache(self):
         ''' Call the data processing scripts & cache the csvs '''
-        print('Processing xml files')
+        print('Processing .xml files ...')
         self.heart_rates = self.get_hrs()
         self.runs = self.get_runs()
         self.save_csvs()
@@ -132,9 +131,14 @@ class FitnessProcessor():
         today = dt.datetime.today().date()
         as_of_path = './storage/as_of.txt'
         if path.exists(as_of_path):
+
+            # Load the last time the cache was updated
             with open(as_of_path, 'r') as text_file:
                 as_of = [int(s) for s in text_file.read().split('-')]
             as_of_date = dt.date(as_of[0], as_of[1], as_of[2])
+            print(f'Cache last updated on {as_of_date}')
+
+            # Establish whether the cache is up-to-date
             is_cached = today == as_of_date
         else:
             is_cached = False
@@ -142,21 +146,29 @@ class FitnessProcessor():
 
     def load_csv(self, mode):
         ''' Load the stored data into memory & make sure the data types are correct '''
+        print(f'Loading the cache for {mode}')
         if mode == 'runs':
-            self.runs = enforce_dtypes(
+            df = enforce_dtypes(
                 pd.read_csv('./storage/runs.csv'), mode='runs'
             )
         elif mode == 'heart_rates':
-            self.heart_rates = enforce_dtypes(
+            df = enforce_dtypes(
                 pd.read_csv('./storage/heart_rates.csv'), mode='heart_rates'
             )
         else:
-            print('Mode must be "runs" or heart_rates".')
+            raise ValueError('`mode` must be "runs" or heart_rates".')
+
+        return df
 
     def save_csvs(self):
         ''' Store the DataFrames as csvs, and today's date in a .txt file '''
+        print('Saving csvs to cache')
+
+        # Store the DataFrames
         self.runs.to_csv('./storage/runs.csv', index=False)
         self.heart_rates.to_csv('./storage/heart_rates.csv', index=False)
+
+        # Record the date it was updated
         today = str(dt.datetime.today().date())
         with open('./storage/as_of.txt', 'w+') as text_file:
             text_file.write(today)
@@ -208,6 +220,8 @@ class FitnessProcessor():
                 Value (float)
                 Unit (str)
         '''
+        print('Getting heart rate data')
+
         # Find heart rate records
         heart_rates = self.root\
             .findall('./Record[@type="HKQuantityTypeIdentifierHeartRate"]')
@@ -239,6 +253,8 @@ class FitnessProcessor():
         )
 
     def get_runs(self):
+        print('Getting run data')
+
         # Get the records
         workouts = self.root.findall(
             './Workout[@workoutActivityType="HKWorkoutActivityTypeRunning"]'
