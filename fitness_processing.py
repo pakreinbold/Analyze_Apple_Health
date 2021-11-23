@@ -53,7 +53,7 @@ def convert_hum(s):
         return s
 
 
-def enforce_dtypes(df, mode):
+def enforce_dtypes(df_, mode):
     '''
     Make sure that the dtypes in the loaded DataFrames are correct
 
@@ -65,6 +65,7 @@ def enforce_dtypes(df, mode):
     Returns:
         (pd.DataFrame): `df`, but with properly formatted column dtypes
     '''
+    df = df_.copy()
     if mode == 'runs':
         if type(df['Date'][0]) == str:
             df['Date'] = pd.to_datetime(df['Date']).dt.date
@@ -75,10 +76,10 @@ def enforce_dtypes(df, mode):
         return df
     elif mode == 'heart_rates':
         if type(df['Time'][0]) == str:
-            df['Time'] = pd.to_datetime(df['Time'])
+            df['Time'] = pd.to_datetime(df['Time'], infer_datetime_format=True)
         return df
     else:
-        print('Mode must be "runs" or "heart_rates".')
+        raise ValueError('`mode` must be "runs" or "heart_rates"')
 
 
 class FitnessProcessor():
@@ -117,6 +118,7 @@ class FitnessProcessor():
             self.runs = self.load_csv('runs')
         else:
             self.update_cache()
+        self.bodyweight = pd.DataFrame()  # not yet implemented
 
     def update_cache(self):
         ''' Call the data processing scripts & cache the csvs '''

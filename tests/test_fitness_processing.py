@@ -1,5 +1,7 @@
+import datetime as dt
 import numpy as np
-from ..fitness_processing import convert_elevation, convert_temp, convert_hum
+import pandas as pd
+from ..fitness_processing import convert_elevation, convert_temp, convert_hum, enforce_dtypes
 
 
 def test_convert_elevation():
@@ -31,3 +33,27 @@ def test_convert_hum():
 
     # Case when input is already a float
     assert convert_hum(50) == 50
+
+
+def test_enforce_dtypes():
+    ''' Make sure that dtypes are converted properly '''
+    runs = pd.DataFrame({'Date': ['11/11/2011', '11/11/2021'],
+                         'Start': ['11:11', '11:11'],
+                         'End': ['12:12', '12:12']})
+    heart_rates = pd.DataFrame({'Time': ['2021/11/11 11:11:00']})
+
+    # Check heart rates
+    rns = enforce_dtypes(runs, mode='runs')
+    assert rns['Date'].dtype == dt.date
+    assert rns['Start'].dtype == dt.time
+    assert rns['End'].dtype == dt.time
+
+    # Check runs
+    hrs = enforce_dtypes(heart_rates, mode='heart_rates')
+    assert hrs['Time'].dtype in [np.dtype('<M8[ns]'), dt.datetime]
+
+    # General checks
+    try:
+        enforce_dtypes(pd.DataFrame(), mode='yeet')
+    except ValueError:
+        assert True
